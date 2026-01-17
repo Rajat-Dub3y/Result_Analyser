@@ -61,8 +61,7 @@ def extract_text(pdf_path):
     text = ""
     for page in doc:
         text += page.get_text()
-    text=parse_result_text(text)
     return text
 
-text = extract_text("Result5th.pdf")
+text = extract_text("./downloads/10331723001/sem2.pdf")
 print(text)

@@ -213,3 +213,5 @@ gradecard_long.csv
 gradecard_summary.csv
 
 myenv/
+
+output/

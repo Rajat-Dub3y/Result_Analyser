@@ -1,22 +1,46 @@
-# main.py
-from loader import load_all_pdfs
-from Compare import compute_ranks, failed_students, subject_topper, subject_stats
+from model import load_class_data
+from analytics import build_analytics
+from exporter import export_all
+from Compare import (
+    compute_cgpa_ranks,
+    compute_sgpa_ranks,
+    failed_students,
+    subject_topper,
+    subject_stats,
+    to_long_subject_df
+)
+import os
+from config import OUTPUT_DIR
 
-df_long, df_wide = load_all_pdfs("./downloads")
+def main():
+    print("[*] Loading class data...")
+    class_data = load_class_data()
 
-df_long.to_csv("gradecard_long.csv", index=False)
-df_wide.to_csv("gradecard_summary.csv", index=False)
+    print("[*] Building analytics tables...")
+    analytics = build_analytics(class_data)
 
-print("\n--- RANK LIST ---\n")
-print(compute_ranks(df_wide)[["Roll","Name","SGPA","Rank"]])
-rank_df = compute_ranks(df_wide)
-print(rank_df.to_string(index=False))
+    print("[*] Exporting base CSVs...")
+    export_all(analytics)
 
-print("\n--- FAILED STUDENTS ---\n")
-print(failed_students(df_long)[["Roll","Name","Subject","Grade"]])
+    print("[*] Computing comparison analytics...")
+    summary_df = analytics["summary"]
+    sgpa_df = analytics["sgpa_matrix"]
 
-print("\n--- SUBJECT TOPPERS ---\n")
-print(subject_topper(df_long)[["SubjectCode","Subject","Name","Grade","CreditPoints"]])
+    long_df = to_long_subject_df(class_data)
+    cgpa_rank_df = compute_cgpa_ranks(summary_df)
+    sgpa_rank_df = compute_sgpa_ranks(sgpa_df)
+    fail_df = failed_students(long_df)
+    topper_df = subject_topper(long_df)
+    stats_df = subject_stats(long_df)
 
-print("\n--- SUBJECT STATS ---\n")
-print(subject_stats(df_long))
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    cgpa_rank_df.to_csv(f"{OUTPUT_DIR}/cgpa_rank.csv", index=False)
+    sgpa_rank_df.to_csv(f"{OUTPUT_DIR}/sgpa_rank.csv", index=False)
+    fail_df.to_csv(f"{OUTPUT_DIR}/failed_subjects.csv", index=False)
+    topper_df.to_csv(f"{OUTPUT_DIR}/subject_toppers.csv", index=False)
+    stats_df.to_csv(f"{OUTPUT_DIR}/subject_stats.csv", index=False)
+
+    print("[✔] Comparison analytics exported to /output")
+
+if __name__ == "__main__":
+    main()

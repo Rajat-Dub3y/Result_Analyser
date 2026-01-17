@@ -1,18 +1,17 @@
+import os
+import json
+import time
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
-import requests
-import time
-import json
-import os
 
 BASE_URL = "https://hit.ucanapply.com"
 
-# ---------- Load Creds ----------
 with open("creds.json", "r") as f:
     creds = json.load(f)
 
@@ -21,16 +20,23 @@ END_ROLL = creds["END_ROLL"]
 YOUR_ROLL = creds["YOUR_ROLL"]
 YOUR_PASSWORD = creds["YOUR_PASSWORD"]
 
-# ---------- Create Downloads Folder ----------
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# ---------- Setup Selenium ----------
+SEM_NAMES = [
+    "First Semester",
+    "Second Semester",
+    "Third Semester",
+    "Fourth Semester",
+    "Fifth Semester"
+]
+
 chrome_options = Options()
 chrome_options.add_argument("--start-maximized")
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
-# ---------- LOGIN ----------
+print("[*] Logging in...")
+
 driver.get(BASE_URL)
 
 WebDriverWait(driver, 10).until(
@@ -43,57 +49,62 @@ driver.find_element(By.ID, "username").send_keys(YOUR_ROLL)
 driver.find_element(By.ID, "password").send_keys(YOUR_PASSWORD)
 driver.find_element(By.XPATH, "//span[text()='Sign In']").click()
 
-# ---------- GO TO Student Activity ----------
+print("[*] Opening Student Activity page...")
 driver.get(BASE_URL + "/student/student-activity")
 
-# ---------- Locate Fifth Semester Form ----------
-fifth_form = WebDriverWait(driver, 10).until(
-    EC.presence_of_element_located((
-        By.XPATH,
-        "//td[contains(text(),'Fifth Semester')]/../td/form"
-    ))
-)
+# Collect form info for 5 semesters
+semester_forms = {}
 
-# Extract POST target URL + CSRF token
-action_url = fifth_form.get_attribute("action")
-csrf = fifth_form.find_element(By.NAME, "_token").get_attribute("value")
+for i, sem_name in enumerate(SEM_NAMES, start=1):
+    form_el = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((
+            By.XPATH,
+            f"//td[contains(text(),'{sem_name}')]/../td/form"
+        ))
+    )
+    action_url = form_el.get_attribute("action")
+    csrf = form_el.find_element(By.NAME, "_token").get_attribute("value")
+    semester_forms[i] = (action_url, csrf)
 
-print("Action URL:", action_url)
-print("CSRF token:", csrf)
-
-# ---------- Extract cookies for requests session ----------
+print("[*] Extracting cookies...")
 cookies = {c['name']: c['value'] for c in driver.get_cookies()}
+
 session = requests.Session()
 for k, v in cookies.items():
     session.cookies.set(k, v)
 
-print("\nSession ready. Starting downloads...\n")
+print("[*] Starting download of 5 semesters for each roll...\n")
 
-# ---------- Loop & Download PDFs ----------
 for roll in range(START_ROLL, END_ROLL + 1):
-    print(f"Fetching roll: {roll}")
+    print(f"[+] Roll: {roll}")
 
-    data = {
-        "rollno": str(roll),
-        "provisional": "N",
-        "_token": csrf
-    }
+    roll_dir = os.path.join(DOWNLOAD_DIR, str(roll))
+    os.makedirs(roll_dir, exist_ok=True)
 
-    try:
-        r = session.post(action_url, data=data)
+    for sem in range(1, 6):
+        action_url, csrf = semester_forms[sem]
 
-        if r.headers.get("Content-Type", "").startswith("application/pdf"):
-            file_path = os.path.join(DOWNLOAD_DIR, f"{roll}.pdf")
-            with open(file_path, "wb") as f:
-                f.write(r.content)
-            print(f"✔ Saved {file_path}")
-        else:
-            print(f"✖ No PDF for roll {roll} (maybe not declared yet)")
+        data = {
+            "rollno": str(roll),
+            "provisional": "N",
+            "_token": csrf
+        }
 
-    except Exception as e:
-        print(f"Error for {roll}: {e}")
+        try:
+            r = session.post(action_url, data=data)
 
-    time.sleep(0.3)
+            if r.headers.get("Content-Type", "").startswith("application/pdf"):
+                file_path = os.path.join(roll_dir, f"sem{sem}.pdf")
+                with open(file_path, "wb") as f:
+                    f.write(r.content)
+                print(f"  ✔ Sem {sem} saved")
+            else:
+                print(f"  ✖ Sem {sem} not available")
 
+        except Exception as e:
+            print(f"  ⚠ Error Sem {sem}: {e}")
+
+        time.sleep(0.2)
+
+print("\n[*] DONE downloading all semesters.")
 driver.quit()
-print("\nDONE.\n")

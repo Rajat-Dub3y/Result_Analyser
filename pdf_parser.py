@@ -14,18 +14,26 @@ def parse_gradecard(pdf_path):
     name = find(r"NAME\s*:\s*(.*?)\s*ROLL")
     roll = find(r"ROLL\s*NO\.\s*:\s*(\d+)")
     reg = find(r"REGISTRATION\s*NO\s*:\s*(.*?)\s+COLLEGE")
-    result = find(r"RESULT.*?SEMESTER\s*:\s*([A-Z]+)") or find(r"RESULT\s*:\s*([A-Z]+)")
+    result = find(r"RESULT.*?SEMESTER\s*:\s*([A-Z]+)")
 
-    # robust SGPA handling
-    sgpa = (
-        find(r"SGPA.*?SEMESTER\s*:\s*([0-9.]+)") or
-        find(r"SGPA\s*:\s*([0-9.]+)") or
-        find(r"SGPA\s*-\s*([0-9.]+)") or
-        find(r"SGPA\s*([0-9.]+)") or
-        find(r"CGPA\s*:\s*([0-9.]+)")
-    )
-    sgpa = float(sgpa) if sgpa else None
+    # detect SGPA
+    odd_sgpa = find(r"SGPA\s*ODD.*?SEMESTER\s*:\s*([0-9.]+)")
+    even_sgpa = find(r"SGPA\s*EVEN.*?SEMESTER\s*:\s*([0-9.]+)")
+    ygpa = find(r"YGPA\s*[:\-]?\s*([0-9.]+)")
 
+    # convert to float when found
+    odd_sgpa = float(odd_sgpa) if odd_sgpa else None
+    even_sgpa = float(even_sgpa) if even_sgpa else None
+    ygpa = float(ygpa) if ygpa else None
+
+    # final SGPA rule:
+    # odd semesters → use odd_sgpa
+    # even semesters → use even_sgpa
+    sgpa = odd_sgpa
+    if even_sgpa is not None:
+        sgpa = even_sgpa
+
+    # subjects extraction
     rows = []
     pattern = r"([A-Z-]+\s*\d+)\s+(.*?)\s+([A-Z])\s+(\d+)\s+([0-9.]+)\s+([0-9.]+)"
     for m in re.finditer(pattern, text):
@@ -39,11 +47,20 @@ def parse_gradecard(pdf_path):
             "CreditPoints": float(cpoints)
         })
 
+    # calculate totals
+    credit_sum = sum(row["Credit"] for row in rows)
+    credit_points_sum = sum(row["CreditPoints"] for row in rows)
+
     return {
         "Name": name,
         "Roll": roll,
         "Registration": reg,
+        "OddSGPA": odd_sgpa,
+        "EvenSGPA": even_sgpa,
+        "YGPA": ygpa,
         "SGPA": sgpa,
         "Result": result,
-        "Subjects": rows
+        "Subjects": rows,
+        "CreditSum": credit_sum,
+        "CreditPointsSum": credit_points_sum
     }
